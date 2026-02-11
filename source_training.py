@@ -26,7 +26,7 @@ torch.manual_seed(10)
 def args():
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir", type=str, default='/mnt/All_Documents/documents/Data_USA')
+    parser.add_argument("--data_dir", type=str, default='/mnt/d/All_Documents/documents/Data_USA')
     parser.add_argument("--source_site", type=str, choices=['A', 'B','C'])
     parser.add_argument("--source_year", type=str, choices=['2019', '2020','2021'])
     parser.add_argument("--pretrained_save_dir", type=str, default='Pretrained_USA')
