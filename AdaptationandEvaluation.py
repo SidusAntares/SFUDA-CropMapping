@@ -17,7 +17,7 @@ import os
 import re
 import glob
 from models import cnn, PETransformerModel, DCM, FC
-from utils import _eval_perf_withcount, mean_confidence_score, op_copy, CropMappingDataset,_collate_fn
+from timematch_utils import _eval_perf_withcount, mean_confidence_score, op_copy, CropMappingDataset,_collate_fn
 
 
 
@@ -29,7 +29,7 @@ torch.manual_seed(10)
 def args():
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir", type=str, default='./Data_USA/')
+    parser.add_argument("--data_dir", type=str, default='/data/user/SFUDA/Data_USA')
     parser.add_argument("--source_site", type=str, choices=['A', 'B','C'])
     parser.add_argument("--source_year", type=str, choices=['2019', '2020','2021'])
     parser.add_argument("--target_site", type=str, choices=['A', 'B','C'])

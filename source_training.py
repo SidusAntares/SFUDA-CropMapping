@@ -14,7 +14,7 @@ import argparse
 import os
 from torch.utils.data import DataLoader
 from models import cnn, PETransformerModel, DCM, FC
-from utils import _eval_perf, CropMappingDataset,_collate_fn
+from timematch_utils import _eval_perf, CropMappingDataset,_collate_fn
 
 
 
@@ -26,7 +26,7 @@ torch.manual_seed(10)
 def args():
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir", type=str, default='/mnt/d/All_Documents/documents/Data_USA')
+    parser.add_argument("--data_dir", type=str, default='/data/user/SFUDA/Data_USA')
     parser.add_argument("--source_site", type=str, choices=['A', 'B','C'])
     parser.add_argument("--source_year", type=str, choices=['2019', '2020','2021'])
     parser.add_argument("--pretrained_save_dir", type=str, default='Pretrained_USA')
@@ -34,7 +34,7 @@ def args():
     parser.add_argument("--batch_size", type=int, default=1024)
     parser.add_argument("--learning_rate", type=float, default=0.0001)
     parser.add_argument("--epochs", type=int, default=500)
-    parser.add_argument("--gpu", type=list, default=[0])
+    parser.add_argument("--gpu", type=list, default=[1])
 
     return parser.parse_args()
 
