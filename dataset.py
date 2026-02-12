@@ -16,7 +16,7 @@ from transforms import (
     Normalize,
     RandomSamplePixels,
     RandomSampleTimeSteps,
-    ToTensor,
+    ToTensor, AddPixelLabels,
 )
 from timematch_utils import label_utils
 
@@ -68,7 +68,6 @@ class PixelSetData(data.Dataset):
     def __getitem__(self, index):
         path, parcel_idx, y, extra = self.samples[index]
         pixels = zarr.load(path)  # (T, C, S)
-
         sample = {
             "index": index,
             "parcel_index": parcel_idx,  # mapping to metadata
@@ -207,10 +206,11 @@ def create_evaluation_loaders(dataset_name, splits, config, sample_pixels_val=Fa
     # Validation dataset
     val_transform = transforms.Compose(
         [
-            RandomSamplePixels(config.num_pixels) if sample_pixels_val else Identity(),
-            RandomSampleTimeSteps(config.seq_length) if is_tsnet else Identity(),
+            RandomSamplePixels(config.num_pixels) ,
+            RandomSampleTimeSteps(config.seq_length) ,
             Normalize(),
             ToTensor(),
+            AddPixelLabels()
         ]
     )
     val_dataset = PixelSetData(
@@ -231,9 +231,11 @@ def create_evaluation_loaders(dataset_name, splits, config, sample_pixels_val=Fa
     # Test dataset
     test_transform = transforms.Compose(
         [
-            RandomSampleTimeSteps(config.seq_length) if is_tsnet else Identity(),
+            RandomSamplePixels(config.num_pixels),
+            RandomSampleTimeSteps(config.seq_length) ,
             Normalize(),
             ToTensor(),
+            AddPixelLabels()
         ]
     )
     test_dataset = PixelSetData(

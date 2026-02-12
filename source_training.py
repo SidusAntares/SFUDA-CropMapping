@@ -13,9 +13,32 @@ import random
 import argparse
 import os
 from torch.utils.data import DataLoader
-from models import cnn, PETransformerModel, DCM, FC
-from timematch_utils import _eval_perf, CropMappingDataset,_collate_fn
 
+import transforms
+from models import cnn, PETransformerModel, DCM, FC
+from timematch_utils.train_utils import bool_flag
+from utils import _eval_perf, CropMappingDataset,_collate_fn
+import argparse
+import os
+import random
+import torch.nn as nn
+from timematch_utils import label_utils
+from torch.utils.data.sampler import WeightedRandomSampler
+from collections import Counter
+
+
+import numpy as np
+import torch
+from torch.utils import data
+from torchvision import transforms
+
+from dataset import PixelSetData, create_evaluation_loaders
+from transforms import (
+    Normalize,
+    RandomSamplePixels,
+    RandomSampleTimeSteps,
+    ToTensor,
+)
 
 
 np.random.seed(10)
@@ -26,20 +49,121 @@ torch.manual_seed(10)
 def args():
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir", type=str, default='/data/user/SFUDA/Data_USA')
     parser.add_argument("--source_site", type=str, choices=['A', 'B','C'])
     parser.add_argument("--source_year", type=str, choices=['2019', '2020','2021'])
     parser.add_argument("--pretrained_save_dir", type=str, default='Pretrained_USA')
     parser.add_argument("--backbone_network", type=str, choices=['CNN', 'LSTM','Transformer'])
-    parser.add_argument("--batch_size", type=int, default=1024)
+    parser.add_argument("--batch_size", type=int, default=10)
     parser.add_argument("--learning_rate", type=float, default=0.0001)
     parser.add_argument("--epochs", type=int, default=500)
-    parser.add_argument("--gpu", type=list, default=[1])
+    parser.add_argument("--gpu", type=list, default=[0])
+
+    # 以下都是timematch
+    parser.add_argument(
+        "--num_workers", default=1, type=int, help="Number of workers"
+    )
+    parser.add_argument("--balance_source", type=bool_flag, default=True, help='class balanced batches for source')
+    parser.add_argument('--num_pixels', default=4096, type=int, help='Number of pixels to sample from the input sample')
+    parser.add_argument('--seq_length', default=30, type=int,
+                        help='Number of time steps to sample from the input sample')
+    # 数据路径与域
+    parser.add_argument('--data_root', default='/mnt/d/All_Documents/documents/ViT/dataset/timematch', type=str,
+                        help='Path to datasets root directory')
+    parser.add_argument('--source', default='denmark/32VNH/2017', type=str)
+    parser.add_argument('--target', default='france/30TXT/2017', type=str)
+    # 类别处理
+    parser.add_argument('--combine_spring_and_winter', action='store_true')
+    # 数据划分
+    parser.add_argument('--num_folds', default=3, type=int)
+    parser.add_argument("--val_ratio", default=0.1, type=float)
+    parser.add_argument("--test_ratio", default=0.2, type=float)
+    # 评估
+    parser.add_argument('--sample_pixels_val', action='store_true')  # 布尔型开关参数（flag），它不需要传值，只需在命令行中出现或不出现该选项
 
     return parser.parse_args()
 
 
+class TupleDataset(data.Dataset):
+    def __init__(self, dataset1, dataset2):
+        super().__init__()
+        self.weak = dataset1
+        self.strong = dataset2
+        assert len(dataset1) == len(dataset2)
+        self.len = len(dataset1)
 
+    def __len__(self):
+        return self.len
+
+    def __getitem__(self, index):
+        return (self.weak[index], self.strong[index])
+
+def get_data_loaders(splits, config, balance_source=True):
+
+    strong_aug = transforms.Compose([
+            RandomSamplePixels(config.num_pixels),
+            RandomSampleTimeSteps(config.seq_length),
+            Normalize(),
+            ToTensor(),
+
+    ])
+
+    source_dataset = PixelSetData(config.data_root, config.source,
+            config.classes, strong_aug,
+            indices=splits[config.source]['train'],)
+
+    if balance_source:
+        source_labels = source_dataset.get_labels()
+        freq = Counter(source_labels)
+        class_weight = {x: 1.0 / freq[x] for x in freq}
+        source_weights = [class_weight[x] for x in source_labels]
+        sampler = WeightedRandomSampler(source_weights, len(source_labels))
+        print("using balanced loader for source")
+        source_loader = data.DataLoader(
+            source_dataset,
+            num_workers=config.num_workers,
+            pin_memory=True,
+            sampler=sampler,
+            batch_size=config.batch_size,
+            drop_last=True,
+        )
+    else:
+        source_loader = data.DataLoader(
+            source_dataset,
+            num_workers=config.num_workers,
+            pin_memory=True,
+            batch_size=config.batch_size,
+            shuffle=True,
+            drop_last=True,
+        )
+    print(f'size of source dataset: {len(source_dataset)} ({len(source_loader)} batches)')
+
+    return source_loader
+
+def create_train_val_test_folds(datasets, num_folds, num_indices, val_ratio=0.1, test_ratio=0.2):
+    folds = []
+    for _ in range(num_folds):
+        splits = {}
+        for dataset in datasets:
+            if type(num_indices) == dict:
+                indices = list(range(num_indices[dataset]))
+            else:
+                indices = list(range(num_indices))
+            n = len(indices)
+            n_test = int(test_ratio * n)
+            n_val = int(val_ratio * n)
+            n_train = n - n_test - n_val
+
+            random.shuffle(indices)
+
+            train_indices = set(indices[:n_train])
+            val_indices = set(indices[n_train:n_train + n_val])
+            test_indices = set(indices[-n_test:])
+            assert set.intersection(train_indices, val_indices, test_indices) == set()
+            assert len(train_indices) + len(val_indices) + len(test_indices) == n
+
+            splits[dataset] = {'train': train_indices, 'val': val_indices, 'test': test_indices}
+        folds.append(splits)
+    return folds
 
 
 
@@ -66,36 +190,20 @@ if __name__ == "__main__":
     total_params = sum(p.numel() for p in backbone.parameters())+sum(p.numel() for p in fc.parameters())
     print("Total number of parameters: ", total_params)
 
-
-    image=np.load(cfg.data_dir+"/Site_"+cfg.source_site+"/x-"+cfg.source_year+".npy")
-    image=image*(0.0000275) -0.2
-    image= ( image-np.mean(image,axis=(0,1),keepdims=True) )/ np.std(image,axis=(0,1),keepdims=True)
-    if cfg.backbone_network=="CNN":
-        image=np.transpose(image, (0,2,1))
-    label=np.load(cfg.data_dir+"/Site_"+cfg.source_site+"/y-"+cfg.source_year+".npy")
-
-
-
     random.seed(10)
-
-
-    val_indices=np.random.choice(np.arange(len(label)), size=int(len(label)/5), replace=False)
-
-    np.save("val_indices_"+cfg.source_site+cfg.source_year+".npy",val_indices)
-
-
-    j = np.arange(len(label))
-    train_indices = np.delete(j,val_indices)
-
-
-    images_train = image[train_indices]
-    labels_train = label[train_indices]
-
-    images_val = image[val_indices]
-    labels_val = label[val_indices]
-    trainLoader=DataLoader(CropMappingDataset(images_train, labels_train),batch_size=cfg.batch_size, shuffle=True,num_workers=0,collate_fn=_collate_fn)
-    val_laoder=DataLoader(CropMappingDataset(images_val, labels_val),batch_size=cfg.batch_size, shuffle=True,num_workers=0,collate_fn=_collate_fn)
-
+    config = cfg
+    source_classes = label_utils.get_classes(cfg.source.split('/')[0],
+                                             combine_spring_and_winter=cfg.combine_spring_and_winter)
+    source_data = PixelSetData(cfg.data_root, cfg.source, source_classes)
+    labels, counts = np.unique(source_data.get_labels(), return_counts=True)
+    source_classes = [source_classes[i] for i in labels[counts >= 200]]
+    print('Using classes:', source_classes)
+    cfg.classes = source_classes
+    cfg.num_classes = len(source_classes)  # 可以覆盖该参数的默认设置
+    # Randomly assign parcels to train/val/test
+    indices = {config.source: len(source_data)}
+    folds = create_train_val_test_folds([config.source], config.num_folds, indices, config.val_ratio,
+                                        config.test_ratio)
 
     optimizer = optim.Adam(list(backbone.parameters())+list(fc.parameters()), lr=0.0001)
 
@@ -106,40 +214,48 @@ if __name__ == "__main__":
 
 
     best_mF1s=0
-    for epoch in range(1, 1000):
+    for fold_num, splits in enumerate(folds):
+        print(f'Starting fold {fold_num}...')
 
-        backbone.train()
-        fc.train()
-        for i, batch in enumerate(trainLoader):
-            xt_train_batch = batch["x"].to(device)
-            yt_train_batch = batch["y"].to(device)
-            optimizer.zero_grad()
-            outputs = backbone(xt_train_batch)
-            outputs=fc(outputs)
+        config.fold_num = fold_num
 
-            loss = criterion(outputs, yt_train_batch)
-            loss.backward()
-            optimizer.step()
+        sample_pixels_val = config.sample_pixels_val
+        val_loader, test_loader = create_evaluation_loaders(config.source, splits, config, sample_pixels_val)
+        source_loader = get_data_loaders(splits, config, config.balance_source)
+        for epoch in range(1, 100):
 
-
-
-
-        _,acc_train,_ = _eval_perf(trainLoader,backbone,fc,device)
-
-        F1s, acc,mF1s = _eval_perf(val_laoder,backbone,fc,device)
+            backbone.train()
+            fc.train()
+            for i, batch in enumerate(source_loader):
+                print(type(batch))
+                print(len(batch))
+                print(batch.keys())
+                xt_train_batch = batch["pixels"].to(device)
+                print("shape:", xt_train_batch.shape) # shape: torch.Size([10, 30, 10, 4096])
+                xt_train_batch = xt_train_batch.permute(0, 3, 1, 2)
 
 
-        if mF1s>best_mF1s:
-            best_mF1s=mF1s
-            if not os.path.exists(cfg.pretrained_save_dir):
-                os.makedirs(cfg.pretrained_save_dir)
-            torch.save(backbone.state_dict(), cfg.pretrained_save_dir+'/backbone'+'Site'+cfg.source_site+cfg.source_year+'.pth')
-            torch.save(fc.state_dict(), cfg.pretrained_save_dir+'/fc'+'Site'+cfg.source_site+cfg.source_year+'.pth')
+                yt_train_batch = batch["label"].to(device)
+                print("shape:", yt_train_batch.shape)
+                break
+                optimizer.zero_grad()
+                outputs = backbone(xt_train_batch)
+                outputs = fc(outputs)
 
+                loss = criterion(outputs, yt_train_batch)
+                loss.backward()
+                optimizer.step()
+            break
+            _, acc_train, _ = _eval_perf(source_loader, backbone, fc, device)
 
+            F1s, acc, mF1s = _eval_perf(val_loader, backbone, fc, device)
 
-
-
+            if mF1s > best_mF1s:
+                best_mF1s = mF1s
+                if not os.path.exists(cfg.pretrained_save_dir):
+                    os.makedirs(cfg.pretrained_save_dir)
+                torch.save(backbone.state_dict(), cfg.pretrained_save_dir + '/backbone' + 'Site' + cfg.source + '.pth')
+                torch.save(fc.state_dict(), cfg.pretrained_save_dir + '/fc' + 'Site' + cfg.source + '.pth')
 
         print(epoch,"acc_train:",acc_train)
 
