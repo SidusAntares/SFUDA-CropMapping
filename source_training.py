@@ -38,6 +38,7 @@ from transforms import (
     RandomSamplePixels,
     RandomSampleTimeSteps,
     ToTensor,
+    AddPixelLabels
 )
 
 
@@ -56,7 +57,8 @@ def args():
     parser.add_argument("--batch_size", type=int, default=10)
     parser.add_argument("--learning_rate", type=float, default=0.0001)
     parser.add_argument("--epochs", type=int, default=500)
-    parser.add_argument("--gpu", type=list, default=[0])
+    # parser.add_argument("--gpu", type=list, default=[0])
+    parser.add_argument("--gpu", type=list, default=[1,2,3])
 
     # 以下都是timematch
     parser.add_argument(
@@ -67,8 +69,10 @@ def args():
     parser.add_argument('--seq_length', default=30, type=int,
                         help='Number of time steps to sample from the input sample')
     # 数据路径与域
-    parser.add_argument('--data_root', default='/mnt/d/All_Documents/documents/ViT/dataset/timematch', type=str,
+    parser.add_argument('--data_root', default='/data/user/DBL/timematch_data', type=str,
                         help='Path to datasets root directory')
+    # parser.add_argument('--data_root', default='/mnt/d/All_Documents/documents/ViT/dataset/timematch', type=str,
+    #                     help='Path to datasets root directory')
     parser.add_argument('--source', default='denmark/32VNH/2017', type=str)
     parser.add_argument('--target', default='france/30TXT/2017', type=str)
     # 类别处理
@@ -104,7 +108,7 @@ def get_data_loaders(splits, config, balance_source=True):
             RandomSampleTimeSteps(config.seq_length),
             Normalize(),
             ToTensor(),
-
+            AddPixelLabels()
     ])
 
     source_dataset = PixelSetData(config.data_root, config.source,
@@ -172,6 +176,22 @@ if __name__ == "__main__":
 
 
     cfg = args()
+
+    random.seed(10)
+    config = cfg
+    source_classes = label_utils.get_classes(cfg.source.split('/')[0],
+                                             combine_spring_and_winter=cfg.combine_spring_and_winter)
+    source_data = PixelSetData(cfg.data_root, cfg.source, source_classes)
+    labels, counts = np.unique(source_data.get_labels(), return_counts=True)
+    source_classes = [source_classes[i] for i in labels[counts >= 200]]
+    print('Using classes:', source_classes)
+    cfg.classes = source_classes
+    cfg.num_classes = len(source_classes)  # 可以覆盖该参数的默认设置
+    # Randomly assign parcels to train/val/test
+    indices = {config.source: len(source_data)}
+    folds = create_train_val_test_folds([config.source], config.num_folds, indices, config.val_ratio,
+                                        config.test_ratio)
+
     if cfg.backbone_network=="CNN":
         backbone=cnn()
         fc=FC(input_dim=1024)
@@ -190,20 +210,7 @@ if __name__ == "__main__":
     total_params = sum(p.numel() for p in backbone.parameters())+sum(p.numel() for p in fc.parameters())
     print("Total number of parameters: ", total_params)
 
-    random.seed(10)
-    config = cfg
-    source_classes = label_utils.get_classes(cfg.source.split('/')[0],
-                                             combine_spring_and_winter=cfg.combine_spring_and_winter)
-    source_data = PixelSetData(cfg.data_root, cfg.source, source_classes)
-    labels, counts = np.unique(source_data.get_labels(), return_counts=True)
-    source_classes = [source_classes[i] for i in labels[counts >= 200]]
-    print('Using classes:', source_classes)
-    cfg.classes = source_classes
-    cfg.num_classes = len(source_classes)  # 可以覆盖该参数的默认设置
-    # Randomly assign parcels to train/val/test
-    indices = {config.source: len(source_data)}
-    folds = create_train_val_test_folds([config.source], config.num_folds, indices, config.val_ratio,
-                                        config.test_ratio)
+
 
     optimizer = optim.Adam(list(backbone.parameters())+list(fc.parameters()), lr=0.0001)
 
@@ -227,25 +234,25 @@ if __name__ == "__main__":
             backbone.train()
             fc.train()
             for i, batch in enumerate(source_loader):
-                print(type(batch))
-                print(len(batch))
-                print(batch.keys())
                 xt_train_batch = batch["pixels"].to(device)
-                print("shape:", xt_train_batch.shape) # shape: torch.Size([10, 30, 10, 4096])
-                xt_train_batch = xt_train_batch.permute(0, 3, 1, 2)
-
-
-                yt_train_batch = batch["label"].to(device)
+                # print("shape:", xt_train_batch.shape) # shape: torch.Size([10, 30, 10, 4096])
+                B,T,C,N = xt_train_batch.shape
+                xt_train_batch = xt_train_batch.permute(0, 3, 2, 1).reshape(-1,C,T)
+                print("shape:", xt_train_batch.shape)
+                yt_train_batch = batch["pixel_labels"].reshape(-1).to(device)
                 print("shape:", yt_train_batch.shape)
-                break
+
                 optimizer.zero_grad()
                 outputs = backbone(xt_train_batch)
                 outputs = fc(outputs)
-
+                # 假设 labels 是你的真实标签张量（shape: [B] 或 [B*N]）
+                print("Unique labels:", torch.unique(yt_train_batch))
+                print("Min label:", yt_train_batch.min().item(), "Max label:", yt_train_batch.max().item())
+                assert yt_train_batch.min() >= 0 and yt_train_batch.max() < cfg.num_classes, "Label out of range!"
                 loss = criterion(outputs, yt_train_batch)
                 loss.backward()
                 optimizer.step()
-            break
+
             _, acc_train, _ = _eval_perf(source_loader, backbone, fc, device)
 
             F1s, acc, mF1s = _eval_perf(val_loader, backbone, fc, device)

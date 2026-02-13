@@ -202,7 +202,7 @@ def create_evaluation_loaders(dataset_name, splits, config, sample_pixels_val=Fa
     Create data loaders for unsupervised domain adaptation
     """
 
-    is_tsnet = config.model == "tsnet"
+    is_tsnet = False
     # Validation dataset
     val_transform = transforms.Compose(
         [

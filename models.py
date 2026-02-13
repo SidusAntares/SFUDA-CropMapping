@@ -31,7 +31,7 @@ def conv_block(in_channels: int, out_channels: int) -> nn.Module:
 class cnn(nn.Module):
     def __init__(self):
         super(cnn, self).__init__()
-        self.conv1 = conv_block(6, 64)
+        self.conv1 = conv_block(10, 64)
         self.conv2 = conv_block(64, 128)
         self.conv3 = conv_block(128, 256)
         self.conv4 = conv_block(256, 512)
