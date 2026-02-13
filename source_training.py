@@ -238,16 +238,16 @@ if __name__ == "__main__":
                 # print("shape:", xt_train_batch.shape) # shape: torch.Size([10, 30, 10, 4096])
                 B,T,C,N = xt_train_batch.shape
                 xt_train_batch = xt_train_batch.permute(0, 3, 2, 1).reshape(-1,C,T)
-                print("shape:", xt_train_batch.shape)
+                # print("shape:", xt_train_batch.shape)#shape: torch.Size([40960, 10, 30])
                 yt_train_batch = batch["pixel_labels"].reshape(-1).to(device)
-                print("shape:", yt_train_batch.shape)
+                # print("shape:", yt_train_batch.shape)#shape: torch.Size([40960])
 
                 optimizer.zero_grad()
                 outputs = backbone(xt_train_batch)
-                outputs = fc(outputs)
+                outputs = fc(outputs) # 这里的fc即mlp映射类别，类别数硬编码到model文件FC类中
                 # 假设 labels 是你的真实标签张量（shape: [B] 或 [B*N]）
-                print("Unique labels:", torch.unique(yt_train_batch))
-                print("Min label:", yt_train_batch.min().item(), "Max label:", yt_train_batch.max().item())
+                # print("Unique labels:", torch.unique(yt_train_batch))
+                # print("Min label:", yt_train_batch.min().item(), "Max label:", yt_train_batch.max().item())
                 assert yt_train_batch.min() >= 0 and yt_train_batch.max() < cfg.num_classes, "Label out of range!"
                 loss = criterion(outputs, yt_train_batch)
                 loss.backward()

@@ -175,7 +175,7 @@ class DCM(nn.Module):
 class FC(nn.Module):
     def __init__(self,input_dim):
         super(FC, self).__init__()
-        self.fco = nn.Linear(input_dim, 3)
+        self.fco = nn.Linear(input_dim, 13)
     def forward(self, x):
         x=self.fco(x)
         return x
