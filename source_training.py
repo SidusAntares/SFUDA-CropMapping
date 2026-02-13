@@ -234,6 +234,7 @@ if __name__ == "__main__":
             backbone.train()
             fc.train()
             for i, batch in enumerate(source_loader):
+                print(f"{epoch: }",i, "/", len(source_loader))
                 xt_train_batch = batch["pixels"].to(device)
                 # print("shape:", xt_train_batch.shape) # shape: torch.Size([10, 30, 10, 4096])
                 B,T,C,N = xt_train_batch.shape
