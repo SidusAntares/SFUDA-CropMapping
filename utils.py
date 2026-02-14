@@ -17,25 +17,26 @@ def _eval_perf(dataloader,backbone,fc, device):
     fc.eval()
     pred=[]
     gt=[]
-    for i, batch in enumerate(dataloader):
-        xt = batch["pixels"].to(device)
-        B, T, C, N = xt.shape
-        xt = xt.permute(0, 3, 2, 1).reshape(-1, C, T)
-        yt = batch["pixel_labels"].reshape(-1).to(device)
-        outputs = backbone(xt)
-        outputs=fc(outputs)
+    with torch.no_grad():
+        for i, batch in enumerate(dataloader):
+            xt = batch["pixels"].to(device)
+            B, T, C, N = xt.shape
+            xt = xt.permute(0, 3, 2, 1).reshape(-1, C, T)
+            yt = batch["pixel_labels"].reshape(-1).to(device)
+            outputs = backbone(xt)
+            outputs = fc(outputs)
 
+            yt_pred = torch.max(outputs, dim=1)[1]
 
-        yt_pred = torch.max(outputs, dim=1)[1]
-
-        pred.extend(yt_pred.cpu().numpy())
-        gt.extend(yt.cpu().numpy())
+            pred.extend(yt_pred.cpu().numpy())
+            gt.extend(yt.cpu().numpy())
 
     F1s=sklearn.metrics.f1_score(np.array(gt),np.array(pred),average=None)
-    acc = np.sum(np.array(pred)==np.array(gt)) / (len(dataloader.dataset))
+    acc = (np.array(pred)==np.array(gt)).mean()
+    mF1s = np.mean(F1s)
     backbone.train()
     fc.train()
-    return F1s, acc,np.sum(F1s)/3
+    return F1s, acc,mF1s
 
 
 def _eval_perf_withcount(dataloader,backbone,fc,device):
@@ -44,24 +45,25 @@ def _eval_perf_withcount(dataloader,backbone,fc,device):
 
     pred=[]
     gt=[]
-    for i, batch in enumerate(dataloader):
-        xt = batch["pixels"].to(device)
-        B, T, C, N = xt.shape
-        xt = xt.permute(0, 3, 2, 1).reshape(-1, C, T)
-        yt = batch["pixel_labels"].reshape(-1).to(device)
-        outputs = backbone(xt)
-        outputs=fc(outputs)
+    with torch.no_grad():
+        for i, batch in enumerate(dataloader):
+            xt = batch["pixels"].to(device)
+            B, T, C, N = xt.shape
+            xt = xt.permute(0, 3, 2, 1).reshape(-1, C, T)
+            yt = batch["pixel_labels"].reshape(-1).to(device)
+            outputs = backbone(xt)
+            outputs = fc(outputs)
 
+            yt_pred = torch.max(outputs, dim=1)[1]
 
-        yt_pred = torch.max(outputs, dim=1)[1]
-
-        pred.extend(yt_pred.cpu().numpy())
-        gt.extend(yt.cpu().numpy())
+            pred.extend(yt_pred.cpu().numpy())
+            gt.extend(yt.cpu().numpy())
     F1s=sklearn.metrics.f1_score(np.array(gt),np.array(pred),average=None)
-    acc = np.sum(np.array(pred)==np.array(gt)) / (len(dataloader.dataset))
+    acc = (np.array(pred)==np.array(gt)).mean()
+    mF1s = np.mean(F1s)
     backbone.train()
     fc.train()
-    return F1s, acc,np.sum(F1s)/3,np.unique(np.array(pred),return_counts=True)[1]
+    return F1s, acc,mF1s,np.unique(np.array(pred),return_counts=True)[1]
 
 
 

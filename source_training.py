@@ -26,7 +26,7 @@ from timematch_utils import label_utils
 from torch.utils.data.sampler import WeightedRandomSampler
 from collections import Counter
 
-
+from tqdm import tqdm
 import numpy as np
 import torch
 from torch.utils import data
@@ -234,8 +234,8 @@ if __name__ == "__main__":
 
             backbone.train()
             fc.train()
-            for i, batch in enumerate(source_loader):
-                print(f"{epoch: }",i, "/", len(source_loader))
+            for i, batch in enumerate(tqdm(source_loader, desc="Processing batches")):
+                # print(f"{epoch: }",i, "/", len(source_loader))
                 xt_train_batch = batch["pixels"].to(device)
                 B,T,C,N = xt_train_batch.shape
                 xt_train_batch = xt_train_batch.permute(0, 3, 2, 1).reshape(-1,C,T)
@@ -253,10 +253,9 @@ if __name__ == "__main__":
                 loss = criterion(outputs, yt_train_batch)
                 loss.backward()
                 optimizer.step()
-
-            _, acc_train, _ = _eval_perf(source_loader, backbone, fc, device)
-
-            F1s, acc, mF1s = _eval_perf(val_loader, backbone, fc, device)
+            with torch.no_grad():
+                _, acc_train, _ = _eval_perf(source_loader, backbone, fc, device)
+                F1s, acc, mF1s = _eval_perf(val_loader, backbone, fc, device)
 
             if mF1s > best_mF1s:
                 best_mF1s = mF1s
