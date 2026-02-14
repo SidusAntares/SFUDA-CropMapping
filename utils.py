@@ -18,7 +18,10 @@ def _eval_perf(dataloader,backbone,fc, device):
     pred=[]
     gt=[]
     for i, batch in enumerate(dataloader):
-        xt, yt = batch["x"].to(device), batch["y"].to(device)
+        xt = batch["pixels"].to(device)
+        B, T, C, N = xt.shape
+        xt = xt.permute(0, 3, 2, 1).reshape(-1, C, T)
+        yt = batch["pixel_labels"].reshape(-1).to(device)
         outputs = backbone(xt)
         outputs=fc(outputs)
 
@@ -42,7 +45,10 @@ def _eval_perf_withcount(dataloader,backbone,fc,device):
     pred=[]
     gt=[]
     for i, batch in enumerate(dataloader):
-        xt, yt = batch["x"].to(device), batch["y"].to(device)
+        xt = batch["pixels"].to(device)
+        B, T, C, N = xt.shape
+        xt = xt.permute(0, 3, 2, 1).reshape(-1, C, T)
+        yt = batch["pixel_labels"].reshape(-1).to(device)
         outputs = backbone(xt)
         outputs=fc(outputs)
 
@@ -69,7 +75,9 @@ def mean_confidence_score(dataloader,backbone,fc,device):
     with torch.no_grad():
 
         for batch in dataloader:
-            xt, _ = batch["x"].to(device), batch["y"].to(device)
+            xt = batch["pixels"].to(device)
+            B, T, C, N = xt.shape
+            xt = xt.permute(0, 3, 2, 1).reshape(-1, C, T)
             outputs = backbone(xt)
             outputs=fc(outputs)
 

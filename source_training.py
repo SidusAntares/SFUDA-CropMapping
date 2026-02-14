@@ -56,9 +56,9 @@ def args():
     parser.add_argument("--backbone_network", type=str, choices=['CNN', 'LSTM','Transformer'])
     parser.add_argument("--batch_size", type=int, default=10)
     parser.add_argument("--learning_rate", type=float, default=0.0001)
-    parser.add_argument("--epochs", type=int, default=500)
+    parser.add_argument("--epochs", type=int, default=50)
     # parser.add_argument("--gpu", type=list, default=[0])
-    parser.add_argument("--gpu", type=list, default=[1,2,3])
+    parser.add_argument("--gpu", type=list, default=[0,1,2,3])
 
     # 以下都是timematch
     parser.add_argument(
@@ -176,6 +176,7 @@ if __name__ == "__main__":
 
 
     cfg = args()
+    source_name = cfg.source.replace('/', '_')
 
     random.seed(10)
     config = cfg
@@ -236,7 +237,6 @@ if __name__ == "__main__":
             for i, batch in enumerate(source_loader):
                 print(f"{epoch: }",i, "/", len(source_loader))
                 xt_train_batch = batch["pixels"].to(device)
-                # print("shape:", xt_train_batch.shape) # shape: torch.Size([10, 30, 10, 4096])
                 B,T,C,N = xt_train_batch.shape
                 xt_train_batch = xt_train_batch.permute(0, 3, 2, 1).reshape(-1,C,T)
                 # print("shape:", xt_train_batch.shape)#shape: torch.Size([40960, 10, 30])
@@ -260,10 +260,13 @@ if __name__ == "__main__":
 
             if mF1s > best_mF1s:
                 best_mF1s = mF1s
-                if not os.path.exists(cfg.pretrained_save_dir):
-                    os.makedirs(cfg.pretrained_save_dir)
-                torch.save(backbone.state_dict(), cfg.pretrained_save_dir + '/backbone' + 'Site' + cfg.source + '.pth')
-                torch.save(fc.state_dict(), cfg.pretrained_save_dir + '/fc' + 'Site' + cfg.source + '.pth')
+                os.makedirs(cfg.pretrained_save_dir,exist_ok=True)
+                backbone_svedir = os.path.join(cfg.pretrained_save_dir, 'backbone_'+cfg.backbone_network )
+                fc_svedir = os.path.join(cfg.pretrained_save_dir, 'fc_'+cfg.backbone_network )
+                os.makedirs(backbone_svedir,exist_ok=True)
+                os.makedirs(fc_svedir,exist_ok=True)
+                torch.save(backbone.state_dict(), os.path.join(backbone_svedir , f'site_{source_name}.pth'))
+                torch.save(fc.state_dict(), os.path.join(fc_svedir, f'site_{source_name}.pth'))
 
         print(epoch,"acc_train:",acc_train)
 
