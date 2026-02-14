@@ -27,6 +27,7 @@ from torch.utils.data.sampler import WeightedRandomSampler
 from collections import Counter
 
 from tqdm import tqdm
+import pandas as pd
 import numpy as np
 import torch
 from torch.utils import data
@@ -54,7 +55,7 @@ def args():
     parser.add_argument("--source_year", type=str, choices=['2019', '2020','2021'])
     parser.add_argument("--pretrained_save_dir", type=str, default='Pretrained_USA')
     parser.add_argument("--backbone_network", type=str, choices=['CNN', 'LSTM','Transformer'])
-    parser.add_argument("--batch_size", type=int, default=10)
+    parser.add_argument("--batch_size", type=int, default=5)
     parser.add_argument("--learning_rate", type=float, default=0.0001)
     parser.add_argument("--epochs", type=int, default=50)
     # parser.add_argument("--gpu", type=list, default=[0])
@@ -62,7 +63,7 @@ def args():
 
     # 以下都是timematch
     parser.add_argument(
-        "--num_workers", default=1, type=int, help="Number of workers"
+        "--num_workers", default=8, type=int, help="Number of workers"
     )
     parser.add_argument("--balance_source", type=bool_flag, default=True, help='class balanced batches for source')
     parser.add_argument('--num_pixels', default=4096, type=int, help='Number of pixels to sample from the input sample')
@@ -219,7 +220,7 @@ if __name__ == "__main__":
 
 
 
-
+    log =[]
 
     best_mF1s=0
     for fold_num, splits in enumerate(folds):
@@ -230,7 +231,7 @@ if __name__ == "__main__":
         sample_pixels_val = config.sample_pixels_val
         val_loader, test_loader = create_evaluation_loaders(config.source, splits, config, sample_pixels_val)
         source_loader = get_data_loaders(splits, config, config.balance_source)
-        for epoch in range(1, 100):
+        for epoch in range(cfg.epochs):
 
             backbone.train()
             fc.train()
@@ -253,9 +254,18 @@ if __name__ == "__main__":
                 loss = criterion(outputs, yt_train_batch)
                 loss.backward()
                 optimizer.step()
-            with torch.no_grad():
-                _, acc_train, _ = _eval_perf(source_loader, backbone, fc, device)
-                F1s, acc, mF1s = _eval_perf(val_loader, backbone, fc, device)
+
+            _, acc_train, _ = _eval_perf(source_loader, backbone, fc, device)
+            F1s, acc, mF1s = _eval_perf(val_loader, backbone, fc, device)
+
+            log.append({
+                'fold': fold_num,
+                'epoch': epoch,
+                'acc_train': acc_train,
+                'val_acc': acc,
+                'val_mF1s': mF1s,
+                'val_F1s_per_class': str(F1s)  # F1s 是数组，转成字符串便于存储；也可单独展开列
+            })
 
             if mF1s > best_mF1s:
                 best_mF1s = mF1s
@@ -270,3 +280,7 @@ if __name__ == "__main__":
         print(epoch,"acc_train:",acc_train)
 
         print(epoch,"mF1s_val:",mF1s)
+        df = pd.DataFrame(log)
+        csv_path = os.path.join(cfg.pretrained_save_dir, f'training_log_{source_name}_{cfg.backbone_network}.csv')
+        df.to_csv(csv_path, index=False)
+        print(f"Training log saved to: {csv_path}")
