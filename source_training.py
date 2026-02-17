@@ -63,7 +63,7 @@ def args():
 
     # 以下都是timematch
     parser.add_argument(
-        "--num_workers", default=8, type=int, help="Number of workers"
+        "--num_workers", default=2, type=int, help="Number of workers"
     )
     parser.add_argument("--balance_source", type=bool_flag, default=True, help='class balanced batches for source')
     parser.add_argument('--num_pixels', default=4096, type=int, help='Number of pixels to sample from the input sample')
@@ -282,5 +282,10 @@ if __name__ == "__main__":
         print(epoch,"mF1s_val:",mF1s)
         df = pd.DataFrame(log)
         csv_path = os.path.join(cfg.pretrained_save_dir, f'training_log_{source_name}_{cfg.backbone_network}.csv')
-        df.to_csv(csv_path, index=False)
+        if  fold_num != 0:
+            df.to_csv(csv_path,
+            mode='a',           # 追加模式
+            index=False)
+        else :
+            df.to_csv(csv_path, index=False)
         print(f"Training log saved to: {csv_path}")
