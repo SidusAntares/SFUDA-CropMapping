@@ -74,7 +74,7 @@ def args():
                         help='Path to datasets root directory')
     # parser.add_argument('--data_root', default='/mnt/d/All_Documents/documents/ViT/dataset/timematch', type=str,
     #                     help='Path to datasets root directory')
-    parser.add_argument('--source', default='denmark/32VNH/2017', type=str)
+    parser.add_argument('--source', default='france/30TXT/2017', type=str)
     parser.add_argument('--target', default='france/30TXT/2017', type=str)
     # 类别处理
     parser.add_argument('--combine_spring_and_winter', action='store_true')
@@ -220,12 +220,12 @@ if __name__ == "__main__":
 
 
 
-    log =[]
+
 
     best_mF1s=0
     for fold_num, splits in enumerate(folds):
         print(f'Starting fold {fold_num}...')
-
+        log = []
         config.fold_num = fold_num
 
         sample_pixels_val = config.sample_pixels_val
@@ -266,10 +266,9 @@ if __name__ == "__main__":
                 'val_mF1s': mF1s,
                 'val_F1s_per_class': str(F1s)  # F1s 是数组，转成字符串便于存储；也可单独展开列
             })
-
+            os.makedirs(cfg.pretrained_save_dir, exist_ok=True)
             if mF1s > best_mF1s:
                 best_mF1s = mF1s
-                os.makedirs(cfg.pretrained_save_dir,exist_ok=True)
                 backbone_svedir = os.path.join(cfg.pretrained_save_dir, 'backbone_'+cfg.backbone_network )
                 fc_svedir = os.path.join(cfg.pretrained_save_dir, 'fc_'+cfg.backbone_network )
                 os.makedirs(backbone_svedir,exist_ok=True)
@@ -277,15 +276,15 @@ if __name__ == "__main__":
                 torch.save(backbone.state_dict(), os.path.join(backbone_svedir , f'site_{source_name}.pth'))
                 torch.save(fc.state_dict(), os.path.join(fc_svedir, f'site_{source_name}.pth'))
 
-        print(epoch,"acc_train:",acc_train)
-
-        print(epoch,"mF1s_val:",mF1s)
-        df = pd.DataFrame(log)
-        csv_path = os.path.join(cfg.pretrained_save_dir, f'training_log_{source_name}_{cfg.backbone_network}.csv')
-        if  fold_num != 0:
-            df.to_csv(csv_path,
-            mode='a',           # 追加模式
-            index=False)
-        else :
-            df.to_csv(csv_path, index=False)
-        print(f"Training log saved to: {csv_path}")
+            print(epoch,"acc_train:",acc_train)
+            print(epoch,"mF1s_val:",mF1s)
+            df = pd.DataFrame(log)
+            csv_path = os.path.join(cfg.pretrained_save_dir, f'training_log_{source_name}_{cfg.backbone_network}.csv')
+            if  fold_num != 0:
+                df.to_csv(csv_path,
+                header=False,
+                mode='a',           # 追加模式
+                index=False)
+            else :
+                df.to_csv(csv_path, index=False)
+            print(f"Training log saved to: {csv_path}")
