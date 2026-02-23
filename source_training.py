@@ -238,6 +238,8 @@ if __name__ == "__main__":
                 xt_train_batch = batch["pixels"].to(device)
                 B,T,C,N = xt_train_batch.shape
                 xt_train_batch = xt_train_batch.permute(0, 3, 2, 1).reshape(-1,C,T)
+                if cfg.backbone_network !="CNN":
+                    xt_train_batch = xt_train_batch.permute(0,2,1)
                 # print("shape:", xt_train_batch.shape)#shape: torch.Size([40960, 10, 30])
                 yt_train_batch = batch["pixel_labels"].reshape(-1).to(device)
                 # print("shape:", yt_train_batch.shape)#shape: torch.Size([40960])
