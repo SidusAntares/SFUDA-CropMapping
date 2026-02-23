@@ -17,7 +17,7 @@ import os
 import re
 import glob
 from models import cnn, PETransformerModel, DCM, FC
-from source_training import create_train_val_test_folds
+from source_training import create_train_val_test_folds, get_data_loaders
 from utils import _eval_perf_withcount, mean_confidence_score, op_copy, CropMappingDataset,_collate_fn
 import torch.optim as optim
 
@@ -84,7 +84,7 @@ def args():
     # 类别处理
     parser.add_argument('--combine_spring_and_winter', action='store_true')
     # 数据划分
-    parser.add_argument('--num_folds', default=3, type=int)
+    parser.add_argument('--num_folds', default=1, type=int)
     parser.add_argument("--val_ratio", default=0.1, type=float)
     parser.add_argument("--test_ratio", default=0.2, type=float)
     # 评估
@@ -115,8 +115,8 @@ if __name__ == "__main__":
     cfg.num_classes = len(source_classes)  # 可以覆盖该参数的默认设置
     # Randomly assign parcels to train/val/test
     indices = {config.source: len(source_data)}
-    folds = create_train_val_test_folds([config.target], config.num_folds, indices, config.val_ratio,
-                                        config.test_ratio)
+    folds = create_train_val_test_folds([config.target], config.num_folds, indices, val_ratio=0.2,
+                                        test_ratio=0)
     if cfg.backbone_network=="CNN":
         backbone=cnn()
         fc=FC(input_dim=1024)
@@ -136,25 +136,10 @@ if __name__ == "__main__":
     print("Total number of parameters: ", total_params)
 
 
-
-
-
-
-
-
-
-
-
-
-    image_target=np.load(cfg.data_dir+"/Site_"+cfg.target_site+"/x-"+cfg.target_year+".npy")
-    image_target=image_target*(0.0000275) -0.2
-    image_target= ( image_target-np.mean(image_target,axis=(0,1),keepdims=True) )/ np.std(image_target,axis=(0,1),keepdims=True)
-    if cfg.backbone_network=="CNN":
-        image_target=np.transpose(image_target, (0,2,1))
-    label_target=np.load(cfg.data_dir+"/Site_"+cfg.target_site+"/y-"+cfg.target_year+".npy")
-
-    TargetLoader=DataLoader(CropMappingDataset(image_target, label_target),batch_size=cfg.batch_size, shuffle=True,num_workers=0,collate_fn=_collate_fn)
-
+    splits = folds[0]
+    sample_pixels_val = config.sample_pixels_val
+    val_loader, _ = create_evaluation_loaders(config.source, splits, config, sample_pixels_val)
+    target_loader = get_data_loaders(splits, config, config.balance_source)
 
 
 
@@ -191,7 +176,7 @@ if __name__ == "__main__":
     backbone.load_state_dict(torch.load(cfg.pretrained_save_dir+'/backbone'+'Site'+cfg.source_site+cfg.source_year+'.pth'))
     fc.load_state_dict(torch.load(cfg.pretrained_save_dir+'/fc'+'Site'+cfg.source_site+cfg.source_year+'.pth'))
 
-    F1s, acc,mF1s,counts = _eval_perf_withcount(TargetLoader,backbone,fc,device)
+    F1s, acc,mF1s,counts = _eval_perf_withcount(target_loader,backbone,fc,device)
 
     print("BeforeAdpatation=>","acc:",acc, "- F1s:",F1s,"- mF1s:",mF1s,"- counts:",counts)
 
@@ -204,8 +189,12 @@ if __name__ == "__main__":
         fc.train()
         losses = 0
         correct = 0
-        for i, batch in enumerate(TargetLoader):
-            xt, yt = batch["x"].to(device), batch["y"].to(device)
+        for i, batch in enumerate(target_loader):
+            xt, yt = batch["pixels"].to(device), batch["pixel_labels"].reshape(-1).to(device)
+            B, T, C, N = xt.shape
+            xt = xt.permute(0, 3, 2, 1).reshape(-1, C, T)
+            if cfg.backbone_network != "CNN":
+                xt = xt.permute(0, 2, 1)
             outputs = backbone(xt)
             outputs=fc(outputs)
             alpha=5
@@ -221,7 +210,7 @@ if __name__ == "__main__":
             optimizer_c.step()
 
 
-        F1s,acc,mF1s,counts = _eval_perf_withcount(TargetLoader,backbone,fc,device)
+        F1s,acc,mF1s,counts = _eval_perf_withcount(target_loader,backbone,fc,device)
 
         print("AdpatationWithBeta="+str(beta)+"=>","acc:",acc, "- F1s:",F1s,"- mF1s:",mF1s,"- counts:",counts)
 
@@ -232,7 +221,7 @@ if __name__ == "__main__":
             if counts[0]/len(label_target)< 0.05 or counts[1]/len(label_target)<  0.05 or counts[2]/len(label_target)<  0.05:
                 continue
 
-        mean_confidence=mean_confidence_score(TargetLoader,backbone,fc,device)
+        mean_confidence=mean_confidence_score(target_loader,backbone,fc,device)
         print("mean_confidence_score:",mean_confidence)
         if not os.path.exists(cfg.adapted_save_dir+'/'+cfg.backbone_network+"-"+cfg.source_site+cfg.source_year+'to'+cfg.target_site+cfg.target_year):
             os.makedirs(cfg.adapted_save_dir+'/'+cfg.backbone_network+"-"+cfg.source_site+cfg.source_year+'to'+cfg.target_site+cfg.target_year)
@@ -251,8 +240,12 @@ if __name__ == "__main__":
         fc.train()
         losses = 0
         correct = 0
-        for i, batch in enumerate(TargetLoader):
-            xt, yt = batch["x"].to(device), batch["y"].to(device)
+        for i, batch in enumerate(target_loader):
+            xt, yt = batch["pixels"].to(device), batch["pixel_labels"].reshape(-1).to(device)
+            B, T, C, N = xt.shape
+            xt = xt.permute(0, 3, 2, 1).reshape(-1, C, T)
+            if cfg.backbone_network != "CNN":
+                xt = xt.permute(0, 2, 1)
             outputs = backbone(xt)
             outputs=fc(outputs)
             alpha=5
@@ -267,7 +260,7 @@ if __name__ == "__main__":
             optimizer.step()
             optimizer_c.step()
  
-        F1s,acc,mF1s,counts = _eval_perf_withcount(TargetLoader,backbone,fc,device)
+        F1s,acc,mF1s,counts = _eval_perf_withcount(target_loader,backbone,fc,device)
 
         print("AdpatationWithGamma="+str(gamma)+"=>","acc:",acc, "- F1s:",F1s,"- mF1s:",mF1s,"- counts:",counts)
 
@@ -278,7 +271,7 @@ if __name__ == "__main__":
             if counts[0]/len(label_target)< 0.05 or counts[1]/len(label_target)<  0.05 or counts[2]/len(label_target)<  0.05:
                 continue
 
-        mean_confidence=mean_confidence_score(TargetLoader,backbone,fc,device)
+        mean_confidence=mean_confidence_score(target_loader,backbone,fc,device)
         print("mean_confidence_score:",mean_confidence)
         if not os.path.exists(cfg.adapted_save_dir+'/'+cfg.backbone_network+"-"+cfg.source_site+cfg.source_year+'to'+cfg.target_site+cfg.target_year):
             os.makedirs(cfg.adapted_save_dir+'/'+cfg.backbone_network+"-"+cfg.source_site+cfg.source_year+'to'+cfg.target_site+cfg.target_year)
@@ -299,8 +292,6 @@ if __name__ == "__main__":
 
 
     ####### Now that the adaptation is complete, we evaluate the performance using the code below:
-
-    TargetLoader=DataLoader(CropMappingDataset(image_target, label_target),batch_size=cfg.batch_size, shuffle=False,num_workers=0,collate_fn=_collate_fn)
 
     paths_unsorted=glob.glob(cfg.adapted_save_dir+'/'+cfg.backbone_network+"-"+cfg.source_site+cfg.source_year+'to'+cfg.target_site+cfg.target_year+'/*.pth')
     paths = sorted(paths_unsorted)
@@ -348,10 +339,14 @@ if __name__ == "__main__":
             backbones[n].load_state_dict(torch.load(paths[j]))
             fcs[n].load_state_dict(torch.load(paths[j+int(len(paths_unsorted)/2)]))
             all_output_soft=[]
-            for _,batch in enumerate(TargetLoader):
+            for _,batch in enumerate(val_loader):
                 backbones[n].eval()
                 fcs[n].eval()
-                xt, yt = batch["x"].to(device), batch["y"].to(device)
+                xt, yt = batch["pixels"].to(device), batch["pixel_labels"].reshape(-1).to(device)
+                B,T,C,N = xt.shape
+                xt = xt.permute(0, 3, 2, 1).reshape(-1,C,T)
+                if cfg.backbone_network !="CNN":
+                    xt = xt.permute(0,2,1)
                 outputs = backbones[n](xt)
                 outputs=fcs[n](outputs)
 
