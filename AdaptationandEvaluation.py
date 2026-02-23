@@ -17,8 +17,37 @@ import os
 import re
 import glob
 from models import cnn, PETransformerModel, DCM, FC
+from source_training import create_train_val_test_folds
 from utils import _eval_perf_withcount, mean_confidence_score, op_copy, CropMappingDataset,_collate_fn
+import torch.optim as optim
 
+import transforms
+from models import cnn, PETransformerModel, DCM, FC
+from timematch_utils.train_utils import bool_flag
+from utils import _eval_perf
+import argparse
+import os
+import random
+import torch.nn as nn
+from timematch_utils import label_utils
+from torch.utils.data.sampler import WeightedRandomSampler
+from collections import Counter
+
+from tqdm import tqdm
+import pandas as pd
+import numpy as np
+import torch
+from torch.utils import data
+from torchvision import transforms
+
+from dataset import PixelSetData, create_evaluation_loaders
+from transforms import (
+    Normalize,
+    RandomSamplePixels,
+    RandomSampleTimeSteps,
+    ToTensor,
+    AddPixelLabels
+)
 
 
 np.random.seed(10)
@@ -29,11 +58,6 @@ torch.manual_seed(10)
 def args():
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir", type=str, default='/data/user/SFUDA/Data_USA')
-    parser.add_argument("--source_site", type=str, choices=['A', 'B','C'])
-    parser.add_argument("--source_year", type=str, choices=['2019', '2020','2021'])
-    parser.add_argument("--target_site", type=str, choices=['A', 'B','C'])
-    parser.add_argument("--target_year", type=str, choices=['2019', '2020','2021'])
     parser.add_argument("--pretrained_save_dir", type=str, default='./Pretrained_USA/')
     parser.add_argument("--adapted_save_dir", type=str, default='./Adapted/')
     parser.add_argument("--backbone_network", type=str, choices=['CNN', 'LSTM','Transformer'])
@@ -41,6 +65,31 @@ def args():
     parser.add_argument("--learning_rate", type=float, default=0.001)
     parser.add_argument("--epochs", type=int, default=500)
     parser.add_argument("--gpu", type=list, default=[0])
+
+    # 以下都是timematch
+    parser.add_argument(
+        "--num_workers", default=2, type=int, help="Number of workers"
+    )
+    parser.add_argument("--balance_source", type=bool_flag, default=True, help='class balanced batches for source')
+    parser.add_argument('--num_pixels', default=4096, type=int, help='Number of pixels to sample from the input sample')
+    parser.add_argument('--seq_length', default=30, type=int,
+                        help='Number of time steps to sample from the input sample')
+    # 数据路径与域
+    parser.add_argument('--data_root', default='/data/user/DBL/timematch_data', type=str,
+                        help='Path to datasets root directory')
+    # parser.add_argument('--data_root', default='/mnt/d/All_Documents/documents/ViT/dataset/timematch', type=str,
+    #                     help='Path to datasets root directory')
+    parser.add_argument('--source', default='france/30TXT/2017', type=str)
+    parser.add_argument('--target', default='france/30TXT/2017', type=str)
+    # 类别处理
+    parser.add_argument('--combine_spring_and_winter', action='store_true')
+    # 数据划分
+    parser.add_argument('--num_folds', default=3, type=int)
+    parser.add_argument("--val_ratio", default=0.1, type=float)
+    parser.add_argument("--test_ratio", default=0.2, type=float)
+    # 评估
+    parser.add_argument('--sample_pixels_val', action='store_true')  # 布尔型开关参数（flag），它不需要传值，只需在命令行中出现或不出现该选项
+
 
     return parser.parse_args()
 
@@ -52,6 +101,22 @@ if __name__ == "__main__":
 
 
     cfg = args()
+    source_name = cfg.source.replace('/', '_')
+
+    random.seed(10)
+    config = cfg
+    source_classes = label_utils.get_classes(cfg.source.split('/')[0],
+                                             combine_spring_and_winter=cfg.combine_spring_and_winter)
+    source_data = PixelSetData(cfg.data_root, cfg.source, source_classes)
+    labels, counts = np.unique(source_data.get_labels(), return_counts=True)
+    source_classes = [source_classes[i] for i in labels[counts >= 200]]
+    print('Using classes:', source_classes)
+    cfg.classes = source_classes
+    cfg.num_classes = len(source_classes)  # 可以覆盖该参数的默认设置
+    # Randomly assign parcels to train/val/test
+    indices = {config.source: len(source_data)}
+    folds = create_train_val_test_folds([config.target], config.num_folds, indices, config.val_ratio,
+                                        config.test_ratio)
     if cfg.backbone_network=="CNN":
         backbone=cnn()
         fc=FC(input_dim=1024)

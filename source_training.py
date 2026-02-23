@@ -223,14 +223,14 @@ if __name__ == "__main__":
     best_mF1s=0
     for fold_num, splits in enumerate(folds):
         print(f'Starting fold {fold_num}...')
-        log = []
+
         config.fold_num = fold_num
 
         sample_pixels_val = config.sample_pixels_val
         val_loader, test_loader = create_evaluation_loaders(config.source, splits, config, sample_pixels_val)
         source_loader = get_data_loaders(splits, config, config.balance_source)
         for epoch in range(cfg.epochs):
-
+            log = []
             backbone.train()
             fc.train()
             for i, batch in enumerate(tqdm(source_loader, desc="Processing batches")):
@@ -278,7 +278,7 @@ if __name__ == "__main__":
             print(epoch,"mF1s_val:",mF1s)
             df = pd.DataFrame(log)
             csv_path = os.path.join(cfg.pretrained_save_dir, f'training_log_{source_name}_{cfg.backbone_network}.csv')
-            if  fold_num != 0:
+            if  os.path.exists(csv_path):
                 df.to_csv(csv_path,
                 header=False,
                 mode='a',           # 追加模式
